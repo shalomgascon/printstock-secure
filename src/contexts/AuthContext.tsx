@@ -2,9 +2,11 @@ import React, { createContext, useContext, useState, useCallback, useEffect } fr
 import { User } from '@/types/inventory';
 import { isRateLimited, clearRateLimit, createSessionTimeout } from '@/lib/security';
 import { loginSchema, LoginFormData } from '@/lib/validation';
+import { authApi } from '@/lib/api';
 
 interface AuthContextType {
   user: User | null;
+  token: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (credentials: LoginFormData) => Promise<{ success: boolean; error?: string }>;
@@ -14,49 +16,12 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Demo users for frontend-only mode
-// In production, this would be handled by the backend
-const DEMO_USERS: Record<string, { password: string; user: User }> = {
-  'admin@printflow.ph': {
-    password: 'Admin@123!',
-    user: {
-      id: '1',
-      email: 'admin@printflow.ph',
-      name: 'Admin User',
-      role: 'admin',
-      createdAt: new Date('2024-01-01'),
-      lastLogin: new Date(),
-    },
-  },
-  'manager@printflow.ph': {
-    password: 'Manager@123!',
-    user: {
-      id: '2',
-      email: 'manager@printflow.ph',
-      name: 'Maria Santos',
-      role: 'manager',
-      createdAt: new Date('2024-01-15'),
-      lastLogin: new Date(),
-    },
-  },
-  'staff@printflow.ph': {
-    password: 'Staff@123!',
-    user: {
-      id: '3',
-      email: 'staff@printflow.ph',
-      name: 'Juan Dela Cruz',
-      role: 'staff',
-      createdAt: new Date('2024-02-01'),
-      lastLogin: new Date(),
-    },
-  },
-};
-
 const SESSION_TIMEOUT = 30 * 60 * 1000; // 30 minutes
 const RATE_LIMIT_KEY = 'login_attempts';
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sessionTimeout, setSessionTimeout] = useState<{ reset: () => void; clear: () => void } | null>(null);
@@ -66,19 +31,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const checkSession = () => {
       try {
         const storedSession = sessionStorage.getItem('printflow_session');
-        if (storedSession) {
+        const storedToken = sessionStorage.getItem('printflow_token');
+        if (storedSession && storedToken) {
           const session = JSON.parse(storedSession);
           const expiresAt = new Date(session.expiresAt);
-          
+
           if (expiresAt > new Date()) {
             setUser(session.user);
+            setToken(storedToken);
             initSessionTimeout();
           } else {
             sessionStorage.removeItem('printflow_session');
+            sessionStorage.removeItem('printflow_token');
           }
         }
       } catch {
         sessionStorage.removeItem('printflow_session');
+        sessionStorage.removeItem('printflow_token');
       }
       setIsLoading(false);
     };
@@ -98,7 +67,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     setSessionTimeout(timeout);
 
-    // Reset timeout on user activity
     const resetOnActivity = () => timeout.reset();
     window.addEventListener('mousemove', resetOnActivity);
     window.addEventListener('keypress', resetOnActivity);
@@ -128,14 +96,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return { success: false, error: errorMsg };
     }
 
-    // Simulate network delay
-    await new Promise(resolve => setTimeout(resolve, 500));
+    // Call backend API
+    const result = await authApi.login(credentials.email, credentials.password);
 
-    // Check credentials (demo mode)
-    const demoUser = DEMO_USERS[credentials.email.toLowerCase()];
-    
-    if (!demoUser || demoUser.password !== credentials.password) {
-      const errorMsg = 'Invalid email or password';
+    if (result.error || !result.data) {
+      const errorMsg = result.error || 'Login failed';
       setError(errorMsg);
       return { success: false, error: errorMsg };
     }
@@ -143,14 +108,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Clear rate limit on successful login
     clearRateLimit(RATE_LIMIT_KEY);
 
-    // Create session
+    const apiUser: User = {
+      id: result.data.user.id,
+      email: result.data.user.email,
+      name: result.data.user.name,
+      role: result.data.user.role,
+      createdAt: new Date(),
+      lastLogin: new Date(),
+    };
+
+    // Store session and token
     const session = {
-      user: { ...demoUser.user, lastLogin: new Date() },
+      user: apiUser,
       expiresAt: new Date(Date.now() + SESSION_TIMEOUT).toISOString(),
     };
 
     sessionStorage.setItem('printflow_session', JSON.stringify(session));
-    setUser(session.user);
+    sessionStorage.setItem('printflow_token', result.data.token);
+    setUser(apiUser);
+    setToken(result.data.token);
     initSessionTimeout();
 
     return { success: true };
@@ -158,9 +134,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = useCallback(() => {
     setUser(null);
+    setToken(null);
     setError(null);
     sessionStorage.removeItem('printflow_session');
-    
+    sessionStorage.removeItem('printflow_token');
+
     if (sessionTimeout) {
       sessionTimeout.clear();
       setSessionTimeout(null);
@@ -171,6 +149,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     <AuthContext.Provider
       value={{
         user,
+        token,
         isAuthenticated: !!user,
         isLoading,
         login,
