@@ -180,22 +180,14 @@ export default function Login() {
             </Button>
           </form>
 
-          {/* Demo credentials */}
-          <div className="rounded-lg border border-border bg-muted/50 p-4 space-y-3">
+          {/* Backend info */}
+          <div className="rounded-lg border border-border bg-muted/50 p-4 space-y-2">
             <p className="text-sm font-medium text-foreground">
-              Demo Credentials
+              Login Information
             </p>
-            <div className="space-y-2 text-xs text-muted-foreground">
-              <p>
-                <span className="font-medium">Admin:</span> admin@printflow.ph / Admin@123!
-              </p>
-              <p>
-                <span className="font-medium">Manager:</span> manager@printflow.ph / Manager@123!
-              </p>
-              <p>
-                <span className="font-medium">Staff:</span> staff@printflow.ph / Staff@123!
-              </p>
-            </div>
+            <p className="text-xs text-muted-foreground">
+              Use your registered credentials to sign in. Contact your administrator if you need an account.
+            </p>
           </div>
 
           {/* Security notice */}
